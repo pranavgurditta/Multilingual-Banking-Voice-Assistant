@@ -6,5 +6,4 @@ Dialogflow
 Amazon lambda functions written in Python
 Amazon DynamoDB
 AWS gateway 
-Vue.js
-Laravel as a PHP framework
+
