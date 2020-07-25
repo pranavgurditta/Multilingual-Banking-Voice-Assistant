@@ -1,5 +1,6 @@
 
-Multilingual banking voice assistant
+# Multilingual banking voice assistant
+
 You could see a live demo of the project here:
 https://www.youtube.com/watch?v=T1cBttVZ-7c
 
