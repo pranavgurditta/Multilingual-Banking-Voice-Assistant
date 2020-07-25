@@ -1,0 +1,1045 @@
+from http.client import HTTPException
+
+
+from email.message import Message
+from email.generator import Generator
+import smtplib
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfform
+from io import StringIO
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.units import inch,cm
+
+
+import requests
+#from flask import Flask, jsonify, make_response, request # import flask dependencies
+#from gtts import gTTS
+
+from googletrans import Translator
+import json
+import random
+import http.client
+import boto3
+import botocore
+import datetime
+import string
+import sendgrid
+from sendgrid.helpers.mail import Email,Content,Mail
+
+
+
+notLoggedInUserText = 'This feature is available only for logged in users. Say login to login or say help to know more.'
+
+
+def lambda_handler(event, context):
+    # The main funtion to be called
+    return onIntent(event, event['queryResult'], event['session'])
+
+'''
+#function to build response of json which is to be send back to dialogflow      
+def build_response(speech_output, getting_output_context):
+    return {
+        'fulfillmentText': speech_output,
+        'outputContexts' : ''
+    }
+
+#building the context of the json   
+def build_output_context(output_context_list):
+    return [output_context_list]
+'''
+
+#resolving which function to be called on the basis of intent name
+def onIntent(event, intentRequest, session):
+    
+    intent = intentRequest['intent']
+    intentName = intentRequest['intent']['displayName']
+    print (intentName)
+    
+    if intentName =="logged in":
+        return otp_login(event, intent, session)
+    elif intentName =="logged in hindi":
+        return otp_login_hindi(event, intent, session)
+    elif intentName == "OTP check":
+        return otp_check(event, intent, session)
+    elif intentName == "otp check hindi":
+        return otp_check_hindi(event, intent, session)
+    elif intentName == "Default Welcome Intent": 
+        return ({'fulfillmentText':"HI "})
+    elif intentName == "issue cheque book":
+        return issue_cheque(event, intent, session)
+    
+    elif intentName == "issue cheque book hindi":
+        return issue_cheque_hindi(event, intent, session)
+    elif intentName == "issue cheque book not user":
+        return issue_cheque_not_user(event, intent, session)
+    elif intentName == "issue credit card":
+        return issue_credit(event, intent, session)
+    elif intentName == "issue credit card not user":
+        return issue_credit_not_user(event, intent, session)
+    elif intentName == "issue debit card":
+        return issue_debit(event, intent, session)
+    elif intentName == "issue debit card not user":
+        return issue_debit_not_user(event, intent, session)
+    elif intentName in ["emi calculator","emi calculator not user"]:
+        return emi_cal(event, intent, session)
+    elif intentName == "eligibility check":
+        return eligibility_check(event, intent, session)
+    elif intentName == "get employment status":
+        return check_emp_status(event, intent, session)
+    elif intentName == "get age":
+        return check_age(event, intent, session)
+    elif intentName == "get city":
+        return check_city(event, intent, session)
+    elif intentName == "get income":
+        return check_income(event, intent, session)
+    elif intentName == "get firm":
+        return check_firm(event, intent, session)
+    elif intentName == "get educational qualification":
+        return check_edu_qual(event, intent, session)
+    elif intentName == "dd form":
+        return createPDF(event, intent, session)
+    elif intentName == "transaction":
+        return transaction(event, intent, session)
+    elif intentName == "query follow up":
+        return querySend(event, intent, session)
+    elif intentName == "get balance":
+        return getBalance(event, intent, session)
+    elif intentName == "get balance not user":
+        return getBalanceNotUser(event, intent, session)
+    elif intentName == "account statement":
+        return accountStatement(event, intent, session)
+    elif intentName == "account statement not user":
+        return accountStatementNotUser(event, intent, session)
+    elif intentName == "appointment login":
+        return appointment_bank(event, intent, session)
+    elif intentName in ["loan description","loan description not user"]:
+        return loan_desc(event, intent, session)
+    elif intentName == "nearest branch":
+        return nearest_branch(event, intent, session)
+    elif intentName == "help":
+        return help_user(event, intent, session)
+    else:
+        raise ValueError("Invalid Intent")
+
+def delete_context(event, keyword):
+    index = -1
+    for i in range(len(event["queryResult"]["outputContexts"])):
+        if keyword in event["queryResult"]["outputContexts"][i]["name"]:
+            index = i
+    return ({'fulfillmentText':"INVALID OTP. Re-enter it.","outputContexts": [{"name":event["queryResult"]["outputContexts"][index]["name"],"lifespanCount": 0}]})
+
+def delete_all(event):
+    output_cont = event["queryResult"]["outputContexts"]
+    event_dict = []
+    for cont in output_cont:
+        event_dict.append({"name":cont["name"], "lifespanCount": 0})
+    return event_dict
+
+def para_space(text, limit):
+    num = ""
+    flag = True
+    for i in text:
+    	if flag:
+    		if i.isdigit():
+    			num += i
+    			flag = False
+    	else:
+    		if i.isdigit() or i==" ":
+    			if i!=" ":
+    				num+=i
+    			continue
+    		break
+    if len(num)!=limit: 
+    	return -1
+    else:
+    	return int(num.strip())
+#print(para_space("fvhvfhs 23 32 dfvd4",4))
+
+def otp_login(event, intent, session):
+    
+    #parameters = event["queryResult"]["parameters"]
+    phone = para_space(event["queryResult"]["queryText"],10)
+    if phone==-1:
+        return ({"fulfillmentText": "Please enter a valid phone number"})
+        
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    response = table.scan()
+    name = ""
+    item1 = ""
+    s = "Sorry you are not a verified user, kindly contact the bank"
+    for item in response['Items']:
+        if (item['Phone Number'] == phone):
+            name = item['Name']
+            item1 = item
+            user_id = item['User_ID']
+    
+    
+    # response = table.get_item(Key={'User_ID': user_id})
+    if name=="": return ({'fulfillmentText':s})
+    s = ("hello "+name+ ". Please enter the OTP sent on your phone")
+    '''
+    translator=Translator()
+    a=translator.translate(s,dest='en')
+    print(a)
+    speech_output = a.text'''
+    
+    d = event["queryResult"]["outputContexts"]
+    d[0]["parameters"] = {"phone-number":phone}
+    send_otp(item1)
+    return ({'fulfillmentText':s,"outputContexts":d})
+    # build_response(speech_output, build_output_context(output_context_dict))
+
+
+
+def otp_login_hindi(event, intent, session):
+    
+    phone = para_space(event["queryResult"]["queryText"],10)
+    if phone==-1:
+        return ({"fulfillmentText": "Please enter a valid phone number"})
+    
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    response = table.scan()
+    name = ""
+    item1 = ""
+    s = "Sorry you are not a verified user, kindly contact the bank"
+    for item in response['Items']:
+        if (item['Phone Number'] == phone):
+            name = item['Name']
+            item1 = item
+            user_id = item['User_ID']
+    
+    
+    # response = table.get_item(Key={'User_ID': user_id})
+    if name=="": return ({'fulfillmentText':s})
+    s = ("hello "+name+ ". Please enter the OTP sent on your phone")
+    
+    translator=Translator()
+    a=translator.translate(s,dest='hi')
+    print(a)
+    speech_output = a.text
+    
+    d = event["queryResult"]["outputContexts"]
+    d[0]["parameters"] = {"phone-number":phone}
+    send_otp(item1)
+    return ({'fulfillmentText':a.text,"outputContexts":d})
+    
+    #return ({'fulfillmentText':speech_output})
+    # build_response(speech_output, build_output_context(output_context_dict))
+
+
+def send_otp(item):
+    #conn = http.client.HTTPConnection("control.msg91.com")
+    
+    payload = ""
+    otp=random.randint(1000,9999)
+    
+    conn = http.client.HTTPConnection("api.msg91.com")
+    conn.request("GET", "/api/sendhttp.php?country=91&sender=TESTIN&route=4&mobiles="+str(item['Phone Number'])+"&authkey=265650AvCCJaHh5c7b9b7a&message=Hello, Your OTP is : "+str(otp))
+    #conn.request("GET", "/api/sendhttp.php?country=91&sender=TESTIN&route=4&mobiles="+str(item['Phone Number'])+"&authkey=265463AIZCx5WoUIJ75c798fcd&message=hello your otp to login  is"+str(otp))
+    #conn.request("POST", "/api/sendotp.php?otp_length=4&authkey=265463AIZCx5WoUIJ75c798fcd&message=hello your otp to login  is"+str(otp)+"&sender=Codeoysters&mobile="+str(item['Phone Number'])+"&otp="+str(otp), payload)
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    item['OTP'] = int(otp)
+    table.put_item(Item=item)
+    res = conn.getresponse()
+    data = res.read()
+    print(data.decode("utf-8"))
+    
+   
+    
+
+def otp_check(event, intent, session):
+    
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    parameters = event["queryResult"]["parameters"]
+    otp = int(parameters["otp"])
+
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    response = table.scan()
+    name = ""
+    s="Sorry INVALID OTP. Re-enter OTP."
+    otp_invalid = True
+    for item in response['Items']:
+        if(item['OTP'] == otp):
+            name=item['Name']
+            account=item['Account_No']
+            otp_invalid = False
+            s=("hello "+name+" We welcome you our registered customer. Please let us know how can we help you ?")
+        
+    if otp_invalid:
+        return delete_context(event, "user")
+        
+        #conn = http.client.HTTPConnection("dialogflow.googleapis.com")
+        #conn.request("DELETE","/v2/{name=projects/farmer-582ff/agent/sessions/b03e1977-6755-9353-9124-f0d0285f90af/contexts/*}")
+        #res = conn.getresponse()
+        #response = requests.delete("https://dialogflow.googleapis.com/v2/{name=projects/farmer-582ff/agent/sessions/b03e1977-6755-9353-9124-f0d0285f90af/contexts/*}")
+    return  ({'fulfillmentText': s})
+    
+    
+
+def otp_check_hindi(event, intent, session):
+    
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    parameters = event["queryResult"]["parameters"]
+    otp = int(parameters["otp"])
+
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    response = table.scan()
+    name = ""
+    s="Sorry INVALID OTP. Re-enter OTP."
+    otp_invalid = True
+    for item in response['Items']:
+        if(item['OTP'] == otp):
+            name=item['Name']
+            account=item['Account_No']
+            otp_invalid = False
+            s=("hello "+name+" We welcome you our registered customer. Please let us know how can we help you ?")
+        
+    if otp_invalid:
+        return delete_context(event, "user")
+    
+    
+    translator=Translator()
+    a=translator.translate(s,dest='hi')
+    print(a)
+        #conn = http.client.HTTPConnection("dialogflow.googleapis.com")
+        #conn.request("DELETE","/v2/{name=projects/farmer-582ff/agent/sessions/b03e1977-6755-9353-9124-f0d0285f90af/contexts/*}")
+        #res = conn.getresponse()
+        #response = requests.delete("https://dialogflow.googleapis.com/v2/{name=projects/farmer-582ff/agent/sessions/b03e1977-6755-9353-9124-f0d0285f90af/contexts/*}")
+    return  ({'fulfillmentText': a.text})
+    
+
+
+def issue_cheque(event, intent, session):
+    phone =event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    table2 = dynamodb.Table('Issue_CB')
+    
+    response = table.scan()
+    s = ""
+    for item in response['Items']:
+        if(item['Phone Number'] == phone):
+            name = item['Name']
+            user_id = item['User_ID']
+            s=("Hello "+name+", Your request for cheque book has been placed.")
+            table2.put_item(Item={'User_ID':int(user_id)})
+
+    return ({'fulfillmentText':s})
+
+
+
+def issue_cheque_hindi(event, intent, session):
+    phone =event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    table2 = dynamodb.Table('Issue_CB')
+    
+    response = table.scan()
+    s = ""
+    for item in response['Items']:
+        if(item['Phone Number'] == phone):
+            name = item['Name']
+            user_id = item['User_ID']
+            s=("Hello "+name+", Your request for cheque book has been placed.")
+            table2.put_item(Item={'User_ID':int(user_id)})
+    
+    translator=Translator()
+    a=translator.translate(s,dest='hi')
+    print(a)
+        #conn = http.client.HTTPConnection("dialogflow.googleapis.com")
+        #conn.request("DELETE","/v2/{name=projects/farmer-582ff/agent/sessions/b03e1977-6755-9353-9124-f0d0285f90af/contexts/*}")
+        #res = conn.getresponse()
+        #response = requests.delete("https://dialogflow.googleapis.com/v2/{name=projects/farmer-582ff/agent/sessions/b03e1977-6755-9353-9124-f0d0285f90af/contexts/*}")
+    return  ({'fulfillmentText': a.text})
+    
+   
+    
+   
+def issue_cheque_not_user(event, intent, session):
+    s = "Sorry you are not a verified user, kindly contact the bank or login first to order a cheque book"
+    return ({'fulfillmentText':s})
+
+def issue_debit(event, intent, session):
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    table2 = dynamodb.Table('Debit_Card')
+    
+    response = table.scan()
+    response2 = table2.scan()
+    DC = 1234567812345678
+    if len(response2["Items"]):
+        DC = int(response2["Items"][-1]['DC_Number']) + 1
+        
+    s = ""
+    for item in response['Items']:
+        if(item['Phone Number'] == phone):
+            name = item['Name']
+            user_id = item['User_ID']
+            s = ("Hello "+name+" Your request for debit card has been placed.")
+            table2.put_item(Item={'DC_Number':DC, 'User_ID':int(user_id)})
+
+    return ({'fulfillmentText':s})
+    
+   
+def issue_debit_not_user(event, intent, session):
+    s = "Sorry you are not a verified user, kindly contact the bank or login first to order a debit card"
+    return ({'fulfillmentText':s})
+    
+
+def issue_credit(event, intent, session):
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    table2 = dynamodb.Table('Credit_Card')
+    
+    response = table.scan()
+    response2 = table2.scan()
+    CC = 5678123456781234
+    if len(response2["Items"]):
+        CC = int(response2["Items"][-1]['CC_Number']) + 1
+        
+    s = ""
+    for item in response['Items']:
+        if(item['Phone Number'] == phone):
+            name=item['Name']
+            user_id=item['User_ID']
+            s=("Hello "+name+" Your request for credit card has been placed.")
+            table2.put_item(Item={'CC_Number':CC, 'User_ID':int(user_id)})
+
+    return ({'fulfillmentText':s})
+    
+   
+def issue_credit_not_user(event, intent, session):
+    s = "Sorry you are not a verified user, kindly contact the bank or login first to order a credit card"
+    return ({'fulfillmentText':s})
+
+def emi_cal(event, intent, session):
+    parameters = event["queryResult"]["parameters"]
+    amount = int(parameters["amount"])
+    print(amount)
+    rate = int(parameters["rate"])
+    rate = (rate/(12*100))
+    print(rate)
+    time = parameters["duration"]
+    print(time)
+    t_check = time['unit']
+    mon = time['amount']
+    if t_check == "years":
+        mon = mon * 12
+    emi = 0
+    emi = ((amount * rate * (1-rate)**mon)/((1+rate)**mon-1))
+    print(emi)
+    
+    speech_output = "Your emi amount is " + str(int(emi)) + ". Thank you for using emi service."
+    return ({"fulfillmentText": speech_output})
+
+
+
+def eligibility_check(event, intent, session): 
+    return ({'fulfillmentText':"Are you salaried or self employed?"})
+
+def check_emp_status(event, intent, session):
+    return ({'fulfillmentText':"What is your age?"})
+
+def check_age(event, intent, session):
+    context = event["queryResult"]["outputContexts"]
+    index = -1
+    for i in range(len(context)):
+        if "check" in context[i]["name"]:
+            index = i
+    parameters = context[index]["parameters"]
+    status = parameters["employment-status"]
+    age = int(parameters["age"]["amount"])
+    if status=="salaried" and 18<=age<=60:
+        return ({'fulfillmentText':"Which City Do You Belong In?"})
+    elif status=="self employed" and 18<=age<=65:
+        return ({'fulfillmentText':"Which City Do You Belong In?"})
+    else:
+        my_dict = delete_all(event)
+        return ({'fulfillmentText':"Sorry, you are not eligible","outputContexts": my_dict})
+
+
+def check_city(event, intent, session):
+    return ({'fulfillmentText':"What is your minimum monthly income?"})
+
+def check_income(event, intent, session):
+    context = event["queryResult"]["outputContexts"]
+    index = -1
+    for i in range(len(context)):
+        if "check" in context[i]["name"]:
+            index = i
+    parameters = context[index]["parameters"]
+    city = parameters["city"]
+    income = parameters["income"]
+    s = ""
+    if city=="delhi":
+        if income>=20000:
+            return ({'fulfillmentText':"The firm with which you are associated with, is it a Private or Public firm?"})
+        else:
+            my_dict = delete_all(event)
+            return ({'fulfillmentText':"Sorry, you are not eligible","outputContexts": my_dict})
+    else:
+        if income>=15000:
+            return ({'fulfillmentText':"The firm with which you are associated with, is it a Private or Public firm?"})
+        else:
+            my_dict = delete_all(event)
+            return ({'fulfillmentText':"Sorry, you are not eligible","outputContexts": my_dict})
+
+
+def check_firm(event, intent, session):
+    return ({'fulfillmentText':"What is your educational qualifications?"})
+
+def check_edu_qual(event, intent, session):
+    context = event["queryResult"]["outputContexts"]
+    index = -1
+    for i in range(len(context)):
+        if "check" in context[i]["name"]:
+            index = i
+    parameters = context[index]["parameters"]
+    firm = parameters["firm"]
+    edu = parameters["edu_qual"]
+    s = ""
+    if firm.lower()=="private":
+        if edu=="graduation": s = "Congrats. You are eligible."
+        else: s = "Sorry, you are not eligible"
+    else: s = "Congrats. You are eligible."
+    my_dict = delete_all(event)
+    return ({'fulfillmentText':s,"outputContexts": my_dict})
+
+
+def createPDF(event, intent, session):
+    parameters = event["queryResult"]["outputContexts"][0]["parameters"]
+    phone = parameters["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    br_code = acc_no = name = ""
+    response = table.scan()
+    for item in response['Items']:
+        if (item['Phone Number'] == phone):
+            name = item['Name']
+            acc_no = item['Account_No']
+            br_code = item['Branch_Code']
+
+    #buffer1 = StringIO()
+    #c = canvas.Canvas(buffer1, pagesize=letter)
+    c = canvas.Canvas('/tmp/form.pdf')
+    c.setFont("Courier", 20)
+    top = 750
+    left = 50
+    form_left = 210
+    form_top = top-65
+    breadth = 300
+    c.drawCentredString(300, top, 'Demand Draft Form')
+    c.setFont("Courier", 12)
+    form = c.acroForm
+ 
+    c.drawString(left, top-50, 'In favor of        : ')
+    form.textfield(x=form_left, y=form_top, borderStyle='inset', width=breadth, forceBorder=True)
+ 
+    c.drawString(left, top-92, 'Branch name where   ')
+    c.drawString(left, top-107, 'DD is payable      : ')
+    form.textfield(x=form_left, y=form_top-50, borderStyle='inset', width=breadth, forceBorder=True)
+ 
+    c.drawString(left, top-150, 'Draft Amount       : ')
+    form.textfield(x=form_left, y=form_top-100, borderStyle='inset', width=breadth, forceBorder=True)
+ 
+    c.drawString(left, top-192, 'Branch code where ')
+    c.drawString(left, top-207, 'DD is applied for  : ')
+    form.textfield(x=form_left, y=form_top-150, borderStyle='inset', width=breadth, forceBorder=True)
+ 
+    c.drawString(left, top-250, 'Your account no.   : ')
+    form.textfield(x=form_left, y=form_top-200, borderStyle='inset', width=breadth, forceBorder=True)
+ 
+    c.drawString(left, top-300, 'Your Name          : ')
+    form.textfield(x=form_left, y=form_top-250, borderStyle='inset', width=breadth, forceBorder=True)
+    
+    c.drawString(form_left+15, top-50, parameters["favor_name"])
+    c.drawString(form_left+15, top-100, parameters["location.original"])
+    c.drawString(form_left+15, top-150, str(int(parameters["amount"])))
+    c.drawString(form_left+15, top-200, str(br_code))
+    c.drawString(form_left+15, top-250, str(acc_no))
+    c.drawString(form_left+15, top-300, name)
+    
+    c.showPage()
+    c.save()
+    '''return buffer1
+    pdf = buffer1.getvalue()
+    buffer1.close() 
+    return pdf'''
+    import sendgrid
+    from sendgrid.helpers.mail import Email,Content,Mail,Attachment
+    import base64
+    
+    sg = sendgrid.SendGridAPIClient(apikey='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')
+    from_email = Email("abhishek.mca18.du@gmail.com")
+    to_email = Email("divesh.mcs18.du@gmail.com")
+    subject = "Sending with SendGrid is Fun"
+    #content = Content("text/plain", "and easy to do anywhere, even with Python")
+    
+    #encoded = base64.b64encode(data).decode()
+    
+    
+    content = Content("text/html", "abc")
+    encoded = ""
+    with open("/tmp/form.pdf",'rb') as f:
+        data = f.read()
+        f.close()
+    encoded = base64.b64encode(data).decode()
+    
+    attachment = Attachment()
+    attachment.content = encoded
+    attachment.type = "application/pdf"
+    attachment.filename = "test.pdf"
+    attachment.disposition = "attachment"
+    attachment.content_id = "Example Content ID"
+    
+    mail = Mail(from_email, subject, to_email, content)
+    mail.add_attachment(attachment)
+    response = sg.client.mail.send.post(request_body=mail.get())
+    
+    return ({'fulfillmentText':"DD Form send to your mail"})
+
+
+
+def transaction(event, intent, session):
+    # phone number of the user
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    transactionTable = dynamodb.Table('Transaction')
+    accountTable = dynamodb.Table('Account')
+
+    context = event["queryResult"]["outputContexts"]
+    parameters = event["queryResult"]["parameters"]
+
+    response = accountTable.scan()
+
+    # scan table and get fromAccount row
+
+    fromAccRow = ''
+    for item in response['Items']:
+        if (item['Phone Number'] == phone):
+            fromAccRow = item
+            print('fromAccRow = ', fromAccRow)
+            break
+    
+    # get parameters
+    transType = parameters['transaction-type']
+    withinBank = parameters['Within-bank']
+    amount = int(parameters['amount'])
+    toAccNo = parameters['account-number']
+    payFor = parameters['payment-for']
+
+    # get toAccount details
+
+    toAccRow = ''
+    for item in response['Items']:
+        if (item['Account_No'] == toAccNo):
+            toAccRow = item
+            break
+
+    # update fromAccount row
+    print('fromAccrow balance before = ', fromAccRow['Balance'])
+    fromAccRow['Balance'] = int(fromAccRow['Balance']) - int(amount)
+    print('fromAccrow balance before = ', fromAccRow['Balance'])
+    accountTable.put_item(Item = fromAccRow)
+    print(toAccNo)
+    print(toAccRow)
+    
+    if withinBank == 'yes' or withinBank == 'yup':     # balance to be updated in both accounts
+        print('toAccrow balance before = ', toAccRow['Balance'])
+        toAccRow['Balance'] = int(toAccRow['Balance']) + int(amount)
+        print('toAccrow balance before = ', toAccRow['Balance'])
+        accountTable.put_item(Item = toAccRow)
+    
+    response = transactionTable.scan()
+
+    lastTransId = -1
+    for item in response['Items']:
+        transId = item['TransactionID']
+        transId = transId[4:]
+        if int(transId) > int(lastTransId):
+            lastTransId = transId
+    
+    transId = 'TRAN' + str(int(lastTransId) + 1)
+    date = datetime.datetime.now()
+    day = str(date.day)
+    month = str(date.month)
+    year = str(date.year)
+    date = day + '-' + month + '-' + year
+
+
+    # record transaction in transaction table
+    transactionTable.put_item(
+        Item={
+        'TransactionID': transId,
+        'Amount': amount,
+        'Date' : date,
+        'From' : fromAccRow['Account_No'],
+        'Kotakuser' : withinBank,
+        'Mode' : transType,
+        'Paidto' : payFor,
+        'To' : toAccRow['Account_No']
+    }
+    )
+    
+    return ({'fulfillmentText':'transaction successful'})
+
+def querySend(event, intent, session):
+    
+    
+    sg = sendgrid.SendGridAPIClient(apikey='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')
+    from_email = Email("divesh.mcs18.du@gmail.com")
+    to_email = Email("divesh.mcs18.du@gmail.com")
+    subject = "Sending with SendGrid is Fun"
+
+    query = event['queryResult']['queryText']
+    
+    content = Content("text/plain", query)
+    mail = Mail(from_email, subject, to_email, content)
+    response = sg.client.mail.send.post(request_body=mail.get())
+
+    return ({'fulfillmentText':'query registered'})
+    
+    
+
+
+def date1LessThanEqualToDate2(date1, date2):
+
+    date1 = date1.split('-')
+    day1 = date1[0]
+    month1 = date1[1]
+    year1 = date1[2]
+    
+    date2 = date2.split('-')
+    day2 = date2[0]
+    month2 = date2[1]
+    year2 = date2[2]
+
+    if int(year1) <= int(year2):
+        if int(month1) <= int(month2):
+            if int(day1) <= int(day2):
+                return True
+    
+    return False
+  
+
+def myAccountInfo(event):
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Account')
+    response = table.scan()
+
+    for item in response['Items']:
+        if (item['Phone Number'] == phone):
+            return item
+
+
+def getBalance(event, intent, session):
+    info = myAccountInfo(event)
+    return ({'fulfillmentText':'Your balance is: ' + str(info['Balance'])})
+
+def getBalanceNotUser(event, intent, session):
+    return {{'fulfillmentText': notLoggedInUserText}}
+
+
+def appointment_bank(event, intent, session):
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    dynamodb = boto3.resource('dynamodb', region_name = 'us-east-1')
+    requestTable = dynamodb.Table('Request')
+    userTable = dynamodb.Table('User_Details')
+    appointmentTable = dynamodb.Table('Appointment')
+    nearestBranchTable = dynamodb.Table('NearestBran')
+    accountTable = dynamodb.Table('Account')
+    
+    context = event["queryResult"]["outputContexts"]
+    parameters = event["queryResult"]["parameters"]
+    res_user = userTable.scan()
+    res_nearest = nearestBranchTable.scan()
+    res_appoint = appointmentTable.scan()
+    res_account = accountTable.scan()
+
+    accountRow = ''
+    for item in res_account['Items']:
+        if (item['Phone Number'] == phone):
+            accountRow = item
+            break
+    print("Account")
+    print(accountRow)
+    userRow = ''
+    for item in res_user['Items']:
+        if (item['User_ID'] == accountRow['User_ID']):
+            userRow = item
+            print('User row = ', userRow)
+            break
+    bankRow = ''
+    print("user")
+    print(userRow)
+    for item in res_nearest['Items']:
+        if (item['Pincode'] == userRow['Pincode']):
+            bankRow = item
+            break
+    sno = 0
+    if len(res_appoint['Items']):
+        sno = int(res_nearest['Items'][-1]['Serial_No']) + 1
+    date = parameters['date_appoint']
+    time = parameters['time_appoint']
+    req_id = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(7))
+    
+    appointmentTable.put_item(
+        Item ={
+            'SerialNo' : sno,
+            'Branch Name': bankRow['Branch_Name'],
+            'Date': date,
+            'RequestID': req_id,
+            'Time': time,
+            'UserID': userRow['User_ID']
+        }
+    )
+    requestTable.put_item(
+        Item = {
+            'RequestID': req_id,
+            'Description': "User wants to have a meeting with bank representative",
+            'Requesttype': "5",
+            'Status': "Pending",
+            'UserID': userRow['User_ID']
+        }
+    )
+    speech_output = "Your appointment with the bank is saved. Our representative with contact you soon. "
+    print(speech_output)
+    return ({'fulfillmentText': speech_output})
+
+
+def loan_desc(event, intent, session):
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table('Loans')
+    response = table.scan()
+    loan = event["queryResult"]["parameters"]["loan_type"]
+    desc = ""
+    for item in response["Items"]:
+        if item["Loan_type"].lower()==loan.lower():
+            desc = item["Description"]
+    return ({'fulfillmentText':desc})
+
+
+def accountStatement(event, intent, session):
+    # phone number of the user
+    phone = event["queryResult"]["outputContexts"][0]["parameters"]["phone-number"]
+    
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    transactionTable = dynamodb.Table('Transaction')
+    accountTable = dynamodb.Table('Account')
+
+    context = event["queryResult"]["outputContexts"]
+    parameters = event["queryResult"]["parameters"]
+    
+    #startDate = parameters['startDate']
+    #endDate = parameters['endDate']
+
+    accTableScan = accountTable.scan()
+    transTableScan = transactionTable.scan()
+
+    myInfo = myAccountInfo(event)
+    myAccountNo = myInfo['Account_No']
+    noOfStatementsToDisplay = 2
+    
+    # get all statements of user
+    
+    print('Transaction table')
+    print(transTableScan)
+    statement = {}
+    key = ''
+    for item in transTableScan['Items']:
+        if int(item['From']) == int(myAccountNo) or int(item['To']) == int(myAccountNo):
+            #if date1LessThanEqualToDate2(startDate, item['Date']) and date1LessThanEqualToDate2(item['Date'], endDate):
+            key = item['TransactionID']
+            key = str(key[4:])
+            statement[key] = item
+            
+    
+    print('statements : ', statement)
+    print(transTableScan)
+    
+    # Last noOfStatementsToDisplay statements of user in data
+
+    data = [['Sno']]
+    for k in statement[key].keys():
+        data[0].append(str(k))
+
+    keys = []
+
+    for trans in statement.keys():
+        keys.append(int(trans))
+        
+    print('type ', type(keys))
+    keys.sort(reverse = True)
+    print('type ', type(keys))
+    print('keys = ', keys)
+
+    noOfStatements = len(statement.keys())
+    print('noOfStatements', noOfStatements)
+    #key = noOfStatements - noOfStatementsToDisplay + 1
+    keyIndex = 0
+    print(data)
+    num = 1
+    
+    for i in range(noOfStatementsToDisplay):
+        data.append([])
+        data[i+1].append(str(num))
+        num += 1
+        print('data[0]', data[0])
+        for j in data[0][1:]:
+            print('statement', statement)
+            print('j=', j)
+            
+            data[i + 1].append(statement[str(keys[keyIndex])][str(j)])
+        keyIndex = keyIndex + 1
+    print(data)
+    createStatementPdf(data)
+    
+
+    return ({'fulfillmentText':'Here are your last ' + str(noOfStatementsToDisplay) + ' transactions. ' + statementString(data, myAccountNo)})
+
+
+def statementString(data, myAccountNo):
+    retVal = ''
+    for i in range(1, len(data)):
+        if int(myAccountNo) == int(data[i][2]):
+            # debit transaction
+            retVal += str(data[i][6]) + ' rupees were debited to ' + str(data[i][5]) + '. '
+        else:
+            # credit transaction
+            retVal += str(data[i][6]) + ' rupees were credited by ' + str(data[i][5]) + '. '
+
+    return retVal
+
+
+def accountStatementNotUser(event, intent, session):
+    return ({'fulfillmentText': notLoggedInUserText})
+
+
+def createStatementPdf(data):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+
+    doc = SimpleDocTemplate('/tmp/statement.pdf', pagesize=(21*cm*1.2, 29.7*cm*1.2))
+    # container for the 'Flowable' objects
+    elements = []
+    rows = [0.4*inch,0.85*inch,1.25*inch,0.5*inch,0.75*inch,0.6*inch,0.6*inch,1.3*inch,1.2*inch]
+    t=Table(data, rows, len(data)*[0.5*inch])
+    t.setStyle(TableStyle([('ALIGN',(0,0),(-1,-1),'RIGHT'),
+                        ('TEXTCOLOR',(0,0),(-1,-1),colors.black),
+                        ('INNERGRID', (0,0), (-1,-1), 0.25, colors.black),
+                        ('BOX', (0,0), (-1,-1), 0.25, colors.black),
+                        ]))
+    
+    elements.append(t)
+    # write the document to disk
+    doc.build(elements)
+
+
+    import sendgrid
+    from sendgrid.helpers.mail import Email,Content,Mail,Attachment
+    import base64
+
+    sg = sendgrid.SendGridAPIClient(apikey='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')
+    from_email = Email("abhishek.mca18.du@gmail.com")
+    to_email = Email("divesh.mcs18.du@gmail.com")
+    subject = "Sending with SendGrid is Fun"
+    #content = Content("text/plain", "and easy to do anywhere, even with Python")
+    
+    #encoded = base64.b64encode(data).decode()
+    
+    
+    content = Content("text/html", "abc")
+    encoded = ""
+    with open("/tmp/statement.pdf",'rb') as f:
+        data = f.read()
+        f.close()
+    encoded = base64.b64encode(data).decode()
+    
+    attachment = Attachment()
+    attachment.content = encoded
+    attachment.type = "application/pdf"
+    attachment.filename = "transaction.pdf"
+    attachment.disposition = "attachment"
+    attachment.content_id = "Example Content ID"
+    
+    mail = Mail(from_email, subject, to_email, content)
+    mail.add_attachment(attachment)
+    response = sg.client.mail.send.post(request_body=mail.get())
+
+def help_user(event, intent, session):
+    speech_output = "Welcome to Kotak Mahindra Bank\n How are you?"
+    return ({'fulfillmentText': speech_output})
+
+def nearest_branch(event, intent, session):
+    dynamodb = boto3.resource('dynamodb', region_name = 'us-east-1')
+    nearestBranchTable = dynamodb.Table('NearestBran')
+    
+    parameters = event["queryResult"]["parameters"]
+    req_city = parameters['city']
+    res_nearest = nearestBranchTable.scan()
+    print(req_city.lower())
+    branchRow = []
+    for item in res_nearest['Items']:
+        print(item['City'].lower())
+        if (item['City'].lower().strip() == req_city.lower().strip()):
+            branchRow.append(item["Branch_Address"])
+            if len(branchRow)==3:
+                break
+                
+    #return ({'fulfillmentText': ".  ".append(branchRow)})
+    return ({
+        "payload": {
+            "google": {
+                "expectUserResponse": "true",
+                "richResponse": {
+                    "items": [
+                        {
+                        "simpleResponse": {
+                          "textToSpeech": "This is a browse carousel example."
+                            }
+                        },
+                        {
+                        "carouselBrowse": {
+                            "items": [
+                                {
+                                    "title": "Title of item 1",
+                                    "openUrlAction": {
+                                    "url": "google.com"
+                                        },
+                                    "description": "Description of item 1",
+                                    "footer": "Item 1 footer",
+                                    "image": {
+                                    "url": "IMG_URL.com",
+                                    "accessibilityText": "Image alternate text"
+                                    }
+                                },
+                                {
+                                    "title": "Google Assistant",
+                                    "openUrlAction": {
+                                    "url": "google.com"
+                                        },
+                                    "description": "Google Assistant on Android and iOS",
+                                    "footer": "More information about the Google Assistant",
+                                    "image": {
+                                        "url": "IMG_URL_Assistant.com",
+                                        "accessibilityText": "Image alternate text"
+                                        }
+                                }
+                              ]
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    })
