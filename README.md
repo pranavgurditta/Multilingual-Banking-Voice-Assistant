@@ -1,9 +1,10 @@
+
+Multilingual banking voice assistant
 You could see a live demo of the project here:
 https://www.youtube.com/watch?v=T1cBttVZ-7c
 
-The project is a voice based banking system. Technology stack of the project on which I have worked is as follows :
-Dialogflow 
-Amazon lambda functions written in Python
-Amazon DynamoDB
-AWS gateway 
+Technology stack: Dialogflow, AWS Lambda, AWS DynamoDB, Google Cloud APIs
+A multilingual voice-based chatbot developed for the Kotak Mahindra Bank‘s problem statement in Smart India Hackathon, 2019.
+It can handle banking activities like querying account balance, filling forms via voice in regional languages like Gujarati, Marathi, Tamil, etc
+
 
